@@ -1,0 +1,50 @@
+name: Publish version.json
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Build version.json
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          BODY: ${{ github.event.release.body }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          if [ -z "$TAG" ]; then echo "No release tag, skip"; exit 0; fi
+          VER="${TAG#v}"
+          IFS='.' read -r MA MI PA <<< "$VER"
+          CODE=$((MA * 10000 + MI * 100 + PA))
+          APK_URL="$REPO_URL/releases/download/$TAG/server-$VER.apk"
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          jq -n \
+            --argjson code "$CODE" \
+            --arg name "$VER" \
+            --arg log "$BODY" \
+            --arg url "$APK_URL" \
+            --arg date "$NOW" \
+            '{versionCode: $code, versionName: $name, changelog: $log, downloadUrl: $url, publishedAt: $date}' \
+            > public/version.json
+          cat public/version.json
+
+      - name: Commit and push
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/version.json
+          git commit -m "chore: publish version $TAG" || echo "No changes"
+          git push origin main
